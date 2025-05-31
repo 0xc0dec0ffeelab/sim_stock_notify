@@ -1,0 +1,87 @@
+services:
+  stock.backend:
+    build:
+      context: .
+      dockerfile: stock_backend/Dockerfile
+    ports:
+      # - "7232"
+      - "5069"
+    environment:
+      ASPNETCORE_URLS: http://+:5069
+      ConnectionStrings__TimescaleDB: Host=stock.timescaledb;Port=5432;Database=stocks;Username=admin;Password=admin
+      ConnectionStrings__Redis: stock.redis:6379,password=1234
+      Jwt__SecretKey: stock_secret_key_to_stock_secret_key
+      Jwt__Issuer: stock_backend
+      Jwt__Audience: stock_user
+      VIRTUAL_HOST: backend_server # VIRTUAL_HOST name as the upstream name in nginx.conf
+    depends_on:
+        - stock.timescaledb
+        - stock.redis
+    # networks:
+    #   - stock_net
+
+  docker-gen:
+      image: nginxproxy/docker-gen
+      volumes:
+        - /var/run/docker.sock:/tmp/docker.sock:ro
+        - ./nginx/stock_nginx.tmpl:/etc/docker-gen/templates/stock_nginx.tmpl:ro
+        - stock_nginx_data:/etc/nginx/conf.d
+      command: -notify-sighup stock.frontend -watch /etc/docker-gen/templates/stock_nginx.tmpl /etc/nginx/conf.d/default.conf
+      # networks:
+      #   - stock_net
+
+  stock.frontend:
+    image: nginx:alpine
+    container_name: stock.frontend
+    volumes:
+      - stock_nginx_data:/etc/nginx/conf.d
+      - ./nginx/stock_nginx.conf:/etc/nginx/nginx.conf
+      - ./stock_backend/Frontend/chat:/usr/share/nginx/html:ro 
+    ports:
+      - "8080:5069"
+    # networks:
+    #   - stock_net
+    depends_on:
+      - docker-gen
+
+  stock.timescaledb:
+    image: timescale/timescaledb:latest-pg17
+    container_name: stock.timescaledb
+    shm_size: 1g # shared memory size for ipc in docker
+    environment:
+      POSTGRES_DB: stocks
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    volumes:
+      - ./stock_postgresql.conf:/etc/postgresql/postgresql.conf
+      # - ./stock_pg_hba.conf:/etc/postgresql/pg_hba.conf
+      - stock_timescaledb_data:/var/lib/postgresql/data
+    command: >
+      postgres -c config_file=/etc/postgresql/postgresql.conf
+    ports:
+      - "5432:5432"
+    # networks:
+    #   - stock_net
+
+  stock.redis:
+    image: redis:latest
+    container_name: stock.redis
+    ports:
+      - "6379:6379"
+    environment:
+      REDIS_ARGS: "--requirepass 1234"
+    volumes:
+      - ./stock_redis.conf:/usr/local/etc/redis/redis.conf
+      - stock_redis_data:/data
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    # networks:
+    #   - stock_net
+  
+
+volumes:
+  stock_timescaledb_data:
+  stock_redis_data:
+  stock_nginx_data:
+
+# networks:
+#   stock_net:

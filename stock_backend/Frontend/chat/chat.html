@@ -1,0 +1,152 @@
+<!DOCTYPE>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>SignalR Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr-protocol-msgpack@8.0.0/dist/browser/signalr-protocol-msgpack.min.js"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' };
+    </script>
+    <style>
+        /* MSN 聊天框風格 */
+        #chatMessages {
+            background-color: #22272e;
+            border: 1px solid #444c56;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 14px;
+            line-height: 1.4;
+            padding: 12px;
+            overflow-y: auto;
+            height: 450px;
+            color: #e1e4e8;
+        }
+        /* 發言者名稱顏色 */
+        .chat-sender {
+            color: #58a6ff;
+            font-weight: 600;
+        }
+        /* 訊息框背景和邊界 */
+        #leftPanel {
+            background-color: #161b22;
+        }
+        /* 左側選單項 hover */
+        .chat-list-item:hover {
+            background-color: #30363d;
+            cursor: pointer;
+        }
+        /* 選中聊天對象背景 */
+        .chat-list-item.selected {
+            background-color: #238636;
+            color: white;
+        }
+
+        .message-item {
+            margin-bottom: 8px;
+            max-width: 70%;
+            word-break: break-word;
+        }
+
+        /* 己方訊息靠右，不顯示名字 */
+        .my-message {
+            margin-left: auto;
+            background-color: #2d3748;
+            padding: 6px 10px;
+            border-radius: 12px 12px 0 12px;
+            color: #cbd5e0;
+        }
+
+        /* 其他訊息靠左，顯示名字 */
+        .other-message {
+            margin-right: auto;
+            background-color: #161b22;
+            padding: 6px 10px;
+            border-radius: 12px 12px 12px 0;
+            color: #e1e4e8;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center p-4">
+    <div id="container" class="w-full max-w-6xl bg-gray-800 rounded-xl shadow-lg flex flex-col h-[90vh]">
+        <!-- 上方區塊：登入/登出 + 使用者顯示 -->
+        <div id="containerInfoDisplay" class="text-yellow-400 text-xl font-extrabold bg-gray-700 border-2 border-yellow-500 rounded-md px-4 py-2 text-center hidden"></div>
+        <div class="flex justify-between items-center px-6 py-3 border-b border-gray-700">
+            <div>
+                <span id="userDisplay" class="font-bold text-green-400 hidden"></span>
+            </div>
+            <div>
+                <button id="logoutBtn" onclick="logout()"
+                        class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-md transition hidden">
+                    Logout
+                </button>
+            </div>
+        </div>
+
+        <!-- 登入畫面 -->
+        <div id="authContainer" class="flex flex-col items-center justify-center flex-1 p-10">
+            <input type="text" id="username" placeholder="Account"
+                   class="mb-3 w-64 px-4 py-2 rounded bg-gray-700 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input type="password" id="password" placeholder="Password"
+                   class="mb-3 w-64 px-4 py-2 rounded bg-gray-700 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <div class="flex gap-3">
+                <button onclick="register()" class="bg-green-600 hover:bg-green-700 px-6 py-2 rounded transition">Register</button>
+                <button onclick="login()" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded transition">Login</button>
+            </div>
+        </div>
+
+        <!-- 主要聊天區塊(登入後顯示) -->
+        <div id="chatContainer" class="hidden flex flex-1 overflow-hidden rounded-b-xl">
+            <!-- 左側欄：私聊 / 群聊 列表 + 切換 -->
+            <div id="leftPanel" class="w-80 flex flex-col border-r border-gray-700">
+                <div class="flex">
+                    <button id="tabPrivateBtn" onclick="switchChatList('private')"
+                            class="flex-1 py-2 bg-gray-900 text-center text-white font-semibold border-b-2 border-cyan-400">
+                        Private Chat
+                    </button>
+                    <div class="w-px bg-gray-700"></div>
+                    <button id="tabGroupBtn" onclick="switchChatList('group')"
+                            class="flex-1 py-2 bg-gray-900 text-center hover:text-white font-semibold border-b-2 border-cyan-400">
+                        Group Chat
+                    </button>
+                </div>
+                <div id="privateList" class="flex-1 overflow-y-auto bg-gray-900">
+                    <ul id="userList" class="divide-y divide-gray-700 text-sm">
+                        <!-- 私聊名單動態填充 -->
+                    </ul>
+                </div>
+                <div id="groupListContainer" class="hidden flex flex-col flex-1 bg-gray-900 h-full">
+                    <div class="flex-1 overflow-y-auto">
+                        <ul id="groupList" class="divide-y divide-gray-700 text-sm">
+                            <!-- 群組列表動態填充 -->
+                        </ul>
+                    </div>
+                    <div class="h-36 shrink-0 p-2 bg-gray-800 border-t border-gray-700 flex flex-col gap-2 justify-start">
+                        <div class="flex gap-2">
+                            <input id="newGroupName" placeholder="Add Group Name"
+                                   class="flex-1 px-2 py-1 rounded bg-gray-700 border border-gray-600 text-white focus:outline-none" />
+                            <button onclick="createGroup()" class="bg-green-600 hover:bg-green-700 px-3 rounded">Create</button>
+                        </div>
+                        <button onclick="leaveGroup()" class="w-full bg-red-600 hover:bg-red-700 text-white rounded py-2">Leave Group</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右側聊天訊息區 -->
+            <div class="flex-1 flex flex-col p-4">
+                <div id="chatTitle" class="mb-2 font-semibold text-xl text-cyan-400 select-none">No Chat Partner Selected</div>
+                <div id="chatMessages" class="flex-1 rounded overflow-y-auto scroll-auto">
+                    <!-- 聊天內容動態填充 -->
+                </div>
+                <div class="mt-4 flex gap-2">
+                    <input id="chatInput" type="text" placeholder="Enter Message..."
+                           class="flex-1 px-3 py-2 rounded bg-gray-700 border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-cyan-400"
+                           onkeydown="handleKeyDown(event)" />
+                    <button onclick="sendMessage()" class="bg-cyan-600 hover:bg-cyan-700 px-5 rounded">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="chat.js"></script>
+</body>
+</html>

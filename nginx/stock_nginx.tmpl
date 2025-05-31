@@ -1,0 +1,60 @@
+{{ range $host, $containers := groupByMulti $ "Env.VIRTUAL_HOST" "," }}
+upstream {{ $host }} {
+
+{{ range $index, $value := $containers }}
+
+	{{ $addrLen := len $value.Addresses }}
+	{{ $network := index $value.Networks 0 }}
+
+	{{ if $value.State.Health.Status }}
+		{{ if ne $value.State.Health.Status "healthy" }}
+			{{ continue }}
+		{{ end }}
+	{{ end }}
+	
+	{{/* If only 1 port exposed, use that */}}
+	{{ if eq $addrLen 1 }}
+		{{ with $address := index $value.Addresses 0 }}
+			# {{$value.Name}}
+			server {{ $network.IP }}:{{ $address.Port }};
+		{{ end }}
+    {{ end }}
+{{ end }}
+}
+
+server {
+
+    listen 5069;
+
+    location / {
+        root /usr/share/nginx/html;
+        index chat.html;
+        try_files $uri $uri/ /chat.html;
+    }
+
+
+    location /chatHub {
+        proxy_pass http://{{ $host }};
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 3600;
+
+    }
+
+    location /api/ {
+        proxy_pass http://{{ $host }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+{{ end }}
